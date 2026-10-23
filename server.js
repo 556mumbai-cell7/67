@@ -8,6 +8,19 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 const rooms = {};
 
+// Função simples para o servidor saber onde estão as paredes (para bloquear tiro)
+function checkWallCollision(x, z) {
+  // Essas são as caixas que geramos no mapa do cliente (mesmas posições aproximadas)
+  const walls = [
+    {x: 10, z: 10, w: 4, d: 4}, {x: -10, z: -10, w: 4, d: 4}, {x: 20, z: 5, w: 8, d: 2},
+    {x: -20, z: -5, w: 8, d: 2}, {x: 5, z: -20, w: 2, d: 8}, {x: -5, z: 20, w: 2, d: 8}
+  ];
+  for (let w of walls) {
+    if (x > w.x - w.w/2 && x < w.x + w.w/2 && z > w.z - w.d/2 && z < w.z + w.d/2) return true;
+  }
+  return false;
+}
+
 io.on('connection', (socket) => {
   socket.on('joinRoom', (data) => {
     const roomId = data.roomId;
@@ -25,7 +38,7 @@ io.on('connection', (socket) => {
     }
 
     rooms[roomId].players[socket.id] = {
-      username: data.username, x: 0, z: 0, yaw: 0, health: 100, kills: 0, skin: data.skin || 'Default'
+      username: data.username, x: 0, z: 0, yaw: 0, health: 100, kills: 0
     };
 
     socket.roomId = roomId;
@@ -47,38 +60,37 @@ io.on('connection', (socket) => {
     if (!room || !room.players[socket.id]) return;
     const shooter = room.players[socket.id];
 
+    // Se atirou em um bot
     if (data.targetType === 'bot') {
       const bot = room.bots.find(b => b.id === data.targetId);
       if (bot && bot.alive) {
+        // O SERVIDOR CHECA SE TEM PAREDE NO MEIO
+        if (checkWallCollision(bot.x, bot.z)) return; 
+
         bot.health -= 35;
         if (bot.health <= 0) { 
           bot.alive = false; 
           shooter.kills++; 
+          io.to(socket.roomId).emit('botKilled', { killerId: socket.id, newKills: shooter.kills });
           checkBRWin(room, socket.roomId); 
         }
         io.to(socket.roomId).emit('updateRoom', room);
       }
     }
     
+    // Se atirou em um jogador
     if (data.targetType === 'player' && room.players[data.targetId]) {
       const target = room.players[data.targetId];
-      target.health -= 25;
-      if (target.health <= 0) { target.health = 0; io.to(data.targetId).emit('died'); }
-      io.to(socket.roomId).emit('playerHit', { id: data.targetId, health: target.health, killerId: socket.id });
-    }
-  });
+      if (checkWallCollision(target.x, target.z)) return;
 
-  socket.on('botAttack', (data) => {
-    const room = rooms[socket.roomId];
-    if (!room || !room.players[data.playerId]) return;
-    
-    const bot = room.bots.find(b => b.id === data.botId);
-    const player = room.players[data.playerId];
-    
-    if (bot && bot.alive && player && player.health > 0) {
-      player.health -= 10;
-      io.to(socket.roomId).emit('playerHit', { id: data.playerId, health: player.health, killerId: bot.id });
-      if (player.health <= 0) { player.health = 0; io.to(data.playerId).emit('died'); }
+      target.health -= 25;
+      if (target.health <= 0) { 
+        target.health = 0; 
+        shooter.kills++;
+        io.to(socket.roomId).emit('botKilled', { killerId: socket.id, newKills: shooter.kills });
+        io.to(data.targetId).emit('died'); 
+      }
+      io.to(socket.roomId).emit('playerHit', { id: data.targetId, health: target.health });
     }
   });
 
