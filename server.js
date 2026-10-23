@@ -15,7 +15,6 @@ io.on('connection', (socket) => {
 
     if (!rooms[roomId]) {
       rooms[roomId] = { players: {}, bots: [] };
-      // Se for BR, cria 15 bots (você + 15 = 16 players)
       if (data.mode === 'br') {
         for(let i=0; i<15; i++) {
           rooms[roomId].bots.push({
@@ -55,7 +54,7 @@ io.on('connection', (socket) => {
         if (bot.health <= 0) { 
           bot.alive = false; 
           shooter.kills++; 
-          checkBRWin(room); 
+          checkBRWin(room, socket.roomId); 
         }
         io.to(socket.roomId).emit('updateRoom', room);
       }
@@ -83,11 +82,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  function checkBRWin(room) {
+  function checkBRWin(room, roomId) {
     const botsAlive = room.bots.filter(b => b.alive).length;
     const playersAlive = Object.values(room.players).filter(p => p.health > 0).length;
     if (botsAlive === 0 && playersAlive === 1) {
-      io.to(room.id).emit('gameOver');
+      io.to(roomId).emit('gameOver');
     }
   }
 
